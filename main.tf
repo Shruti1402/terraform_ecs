@@ -5,78 +5,69 @@ resource "aws_vpc" "my_vpc" {
   }
 }   
 
-resource "aws_subnet" "subnet_a" {
+resource "aws_subnet" "public_a" {
+  vpc_id     = aws_vpc.my_vpc.id
+  cidr_block = "10.0.0.0/24"
+  map_public_ip_on_launch = "true"
+  availability_zone = "us-east-1a" 
+  tags = {
+    Env  = "prod"
+    Name = "mypublic-us-east-1a"
+  }
+}
+
+resource "aws_subnet" "public_b" {
   vpc_id     = aws_vpc.my_vpc.id
   cidr_block = "10.0.1.0/24"
   map_public_ip_on_launch = "true"
-  availability_zone = "us-east-1a" 
+  availability_zone = "us-east-1b" 
+  tags = {
+    Env  = "prod"
+    Name = "mypublic-us-east-1b"
+  }
 }
 
-resource "aws_subnet" "subnet_b" {
+resource "aws_subnet" "private_a" {
   vpc_id     = aws_vpc.my_vpc.id
   cidr_block = "10.0.2.0/24"
+  map_public_ip_on_launch = false
+  availability_zone = "us-east-1a" 
+  tags = {
+    Env  = "prod"
+    Name = "myprivate-us-east-1a"
+  }
+}
+
+resource "aws_subnet" "private_b" {
+  vpc_id     = aws_vpc.my_vpc.id
+  cidr_block = "10.0.3.0/24"
+  map_public_ip_on_launch = false
   availability_zone = "us-east-1b" 
-}
-
-
-resource "aws_security_group" "ecs_security_group" {
- 
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-                  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+  tags = {
+    Env  = "prod"
+    Name = "myprivate-us-east-1b"
   }
 }
+
 
 # Create an internet gateway
 resource "aws_internet_gateway" "my_igw" {
   vpc_id = aws_vpc.my_vpc.id
-
   tags = {
-    Name = "task1-igw"
+    Name = "my-igw"
   }
 }
 
 # Create a route table for the public subnet
 resource "aws_route_table" "public_route_table" {
   vpc_id = aws_vpc.my_vpc.id
-
-  tags = {
-    Name = "task1-rtb-public"
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.my_igw.id
   }
-}
-
-# Associate the public subnet with the route table
-resource "aws_route_table_association" "public_subnet_association" {
-  subnet_id      = aws_subnet.subnet_a.id
-  route_table_id = aws_route_table.public_route_table.id
-}
-
-
-# Create an EIP for the NAT gateway
-resource "aws_eip" "nat_eip" {
-  vpc      = true
 
   tags = {
-    Name = "NATEIP"
-  }
-}
-
-#  Create a NAT gateway
-resource "aws_nat_gateway" "my_nat_gateway" {
-  allocation_id = aws_eip.nat_eip.id
-  subnet_id     = aws_subnet.subnet_a.id
-
-  tags = {
-    Name = "task1-nat-public1-us-east-1a"
+    Name = "my-rtb-public"
   }
 }
 
@@ -85,15 +76,60 @@ resource "aws_route_table" "private_route_table" {
   vpc_id = aws_vpc.my_vpc.id
 
   tags = {
-    Name = "task1-rtb-private1-us-east-1a"
+    Name = "my-rtb-private"
   }
 }
 
+# Associate the public subnet with the route table
+resource "aws_route_table_association" "public_subnet_association1" {
+  subnet_id      = aws_subnet.public_a.id
+  route_table_id = aws_route_table.public_route_table.id
+}
+
+resource "aws_route_table_association" "public_subnet_association2" {
+  subnet_id      = aws_subnet.public_b.id
+  route_table_id = aws_route_table.public_route_table.id
+}
+
 # Associate the private subnets with their respective custom route tables
-resource "aws_route_table_association" "private_subnet_association" {
-  subnet_id      = aws_subnet.subnet_b.id
+resource "aws_route_table_association" "private_subnet_association1" {
+  subnet_id      = aws_subnet.private_a.id
   route_table_id = aws_route_table.private_route_table.id
 }
+
+resource "aws_route_table_association" "private_subnet_association2" {
+  subnet_id      = aws_subnet.private_b.id
+  route_table_id = aws_route_table.private_route_table.id
+}
+
+#Create main route table 
+resource "aws_main_route_table_association" "default" {
+  route_table_id = aws_route_table.public_route_table.id
+  vpc_id         = aws_vpc.my_vpc.id
+}
+
+# Create an EIP for the NAT gateway
+#resource "aws_eip" "nat_eip" {
+#  vpc      = true
+
+#  tags = {
+#    Name = "NATEIP"
+#  }
+#}
+
+#  Create a NAT gateway
+#resource "aws_nat_gateway" "my_nat_gateway" {
+#  allocation_id = aws_eip.nat_eip.id
+# subnet_ids     = [aws_subnet.public_a.id , aws_subnet.public_b.id]
+
+#  tags = {
+#    Name = "my-nat-public1-us-east-1a"
+#  }
+#}
+
+
+
+
 
 
 # gateway attached
@@ -103,18 +139,69 @@ resource "aws_route" "public_internet_gateway" {
   gateway_id             = aws_internet_gateway.my_igw.id
 }
 
-resource "aws_route" "private_nat_gateway" {
-  route_table_id         = aws_route_table.private_route_table.id
-  destination_cidr_block = "0.0.0.0/0"
-  nat_gateway_id         = aws_nat_gateway.my_nat_gateway.id
+#resource "aws_route" "private_nat_gateway" {
+#  route_table_id         = aws_route_table.private_route_table.id
+#  destination_cidr_block = "0.0.0.0/0"
+#  nat_gateway_id         = aws_nat_gateway.my_nat_gateway.id
+#}
+
+#security group for whitelist ip
+resource "aws_security_group" "example_sg" {
+  name        = "example-sg"
+  description = "Example Security Group"
+  vpc_id      = aws_vpc.my_vpc.id # Replace with your VPC ID
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "tcp"
+    cidr_blocks = ["99.81.126.126/32"]
+  }
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "tcp"
+    cidr_blocks = ["13.58.7.144/32"]
+  }
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "tcp"
+    cidr_blocks = ["13.236.234.230/32"]
+  }
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "tcp"
+    cidr_blocks = ["3.212.17.174/32"]
+  }
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "tcp"
+    cidr_blocks = ["3.24.26.71/32"]
+  }
+
+  ingress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "tcp"
+    cidr_blocks = ["34.249.107.178/32"]
+  }
 }
+
+
 
 
 #load balancer
 resource "aws_lb" "this" {
   name            = "my-alb"
   #security_groups = [aws_security_group.this.id]
-  subnets  = [aws_subnet.subnet_a.id,aws_subnet.subnet_b.id]
+  subnets  = [aws_subnet.public_a.id,aws_subnet.public_b.id]
 }
 
 resource "aws_lb_listener" "http" {
@@ -156,6 +243,13 @@ resource "aws_lb_listener_rule" "this" {
     }
   }
 }
+
+
+#ecr
+resource "aws_ecr_repository" "my_ecr_repository" {
+    name = "my-ecr-repo"
+}
+
 
 #ecs
 resource "aws_ecs_cluster" "my_cluster" {
@@ -230,7 +324,7 @@ resource "aws_ecs_service" "my_app_service" {
 
 
   network_configuration {
-    subnets = [aws_subnet.subnet_a.id, aws_subnet.subnet_b.id]
+    subnets = [aws_subnet.private_a.id, aws_subnet.private_b.id]
    # security_groups = [aws_security_group.ecs_security_group.id]
   }
 }
@@ -275,6 +369,23 @@ resource "aws_iam_role_policy_attachment" "rds_sqs_policy_attachment" {
     role       = aws_iam_role.rds_sqs_role.name
 }
 
+
+resource "aws_db_subnet_group" "default" {
+  name = "my-db-subnet-group"
+
+  subnet_ids = [
+    aws_subnet.private_a.id,
+    aws_subnet.private_b.id
+    
+  ]
+
+  tags = {
+    Env  = "production"
+    Name = "my-db-subnet-group"
+  }
+}
+
+#rds
 resource "aws_db_instance" "example" {
   allocated_storage    = 20
   storage_type         = "gp2"
@@ -285,6 +396,8 @@ resource "aws_db_instance" "example" {
   username             = "dbuser"
   password             = "dbpassword"
   parameter_group_name = "default.mysql5.7"
+  multi_az             = true 
+  db_subnet_group_name = "my-db-subnet-group"
 }
 
 
